@@ -1,5 +1,6 @@
 #pragma once
 
+#include "SerialHelpers.h"
 #include "SerialPort.h"
 
 #include <wx/frame.h>
