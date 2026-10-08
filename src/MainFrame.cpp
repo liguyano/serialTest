@@ -8,6 +8,11 @@
 #include <wx/datetime.h>
 #include <wx/filedlg.h>
 #include <wx/ffile.h>
+#include <wx/fileconf.h>
+#include <wx/filename.h>
+#include <wx/listbox.h>
+#include <wx/stdpaths.h>
+#include <wx/textdlg.h>
 #include <wx/msgdlg.h>
 #include <wx/panel.h>
 #include <wx/sizer.h>
@@ -60,7 +65,9 @@ wxString BytesToReadableText(const std::vector<std::uint8_t>& bytes) {
 MainFrame::MainFrame()
     : wxFrame(nullptr, wxID_ANY, "SerialTest - wxWidgets Serial Terminal",
               wxDefaultPosition, wxSize(1000, 700)) {
+    LoadCommands();
     BuildUi();
+    RefreshCommandGroups();
     RefreshPorts();
     SetConnectedState(false);
     Centre();
@@ -183,37 +190,124 @@ void MainFrame::BuildUi() {
                                       "Linux shell commands (insert only)"),
                      0, wxALL, 6);
 
-    struct CommandEntry { const char* label; const char* command; };
-    const CommandEntry commands[] = {
-        {"Current directory", "pwd"},
-        {"List files", "ls -lah"},
-        {"Current user", "whoami"},
-        {"Kernel info", "uname -a"},
-        {"OS version", "cat /etc/os-release"},
-        {"CPU info", "lscpu"},
-        {"Memory", "free -h"},
-        {"Disk usage", "df -h"},
-        {"Block devices", "lsblk"},
-        {"IP addresses", "ip addr"},
-        {"Network routes", "ip route"},
-        {"Recent kernel log", "dmesg | tail -n 30"},
-    };
-    for (const auto& entry : commands) {
-        auto* button = new wxButton(commandsPanel_, wxID_ANY, entry.label);
-        const wxString command = wxString::FromUTF8(entry.command);
-        button->SetToolTip(command);
-        commandsBox->Add(button, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 5);
-        button->Bind(wxEVT_BUTTON, [this, command](wxCommandEvent&) {
-            sendModeChoice_->SetSelection(0);  // Commands must be sent as text, not HEX.
-            lineEndingChoice_->Enable(true);
-            lineEndingChoice_->SetSelection(1);  // Linux consoles expect CR (Enter).
-            sendText_->SetValue(command);
-            sendText_->SetFocus();
-            sendText_->SetInsertionPointEnd();
-        });
-    }
+    commandGroupChoice_ = new wxChoice(commandsPanel_, wxID_ANY);
+    commandsBox->Add(commandGroupChoice_, 0, wxEXPAND | wxALL, 5);
+
+    auto* groupActions = new wxBoxSizer(wxHORIZONTAL);
+    auto* addGroup = new wxButton(commandsPanel_, wxID_ANY, "+ Group");
+    auto* renameGroup = new wxButton(commandsPanel_, wxID_ANY, "Rename");
+    auto* deleteGroup = new wxButton(commandsPanel_, wxID_ANY, "- Group");
+    groupActions->Add(addGroup, 1, wxRIGHT, 3);
+    groupActions->Add(renameGroup, 1, wxRIGHT, 3);
+    groupActions->Add(deleteGroup, 1);
+    commandsBox->Add(groupActions, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 5);
+
+    commandList_ = new wxListBox(commandsPanel_, wxID_ANY);
+    commandsBox->Add(commandList_, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 5);
+    auto* insertButton = new wxButton(commandsPanel_, wxID_ANY, "Insert selected");
+    commandsBox->Add(insertButton, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 5);
+
+    auto* commandActions = new wxBoxSizer(wxHORIZONTAL);
+    auto* addCommand = new wxButton(commandsPanel_, wxID_ANY, "+ Command");
+    auto* editCommand = new wxButton(commandsPanel_, wxID_ANY, "Edit");
+    auto* deleteCommand = new wxButton(commandsPanel_, wxID_ANY, "Delete");
+    commandActions->Add(addCommand, 1, wxRIGHT, 3);
+    commandActions->Add(editCommand, 1, wxRIGHT, 3);
+    commandActions->Add(deleteCommand, 1);
+    commandsBox->Add(commandActions, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 5);
+
+    commandGroupChoice_->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) { RefreshCommandList(); });
+    commandList_->Bind(wxEVT_LISTBOX_DCLICK, [this](wxCommandEvent&) { InsertSelectedCommand(); });
+    insertButton->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { InsertSelectedCommand(); });
+
+    addGroup->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+        wxTextEntryDialog dialog(this, "Group name:", "Add group");
+        if (dialog.ShowModal() != wxID_OK) return;
+        wxString name = dialog.GetValue().Trim(true).Trim(false);
+        if (name.empty()) return;
+        for (const auto& group : commandGroups_) {
+            if (group.name.CmpNoCase(name) == 0) {
+                wxMessageBox("A group with this name already exists.", "Groups", wxOK | wxICON_WARNING, this);
+                return;
+            }
+        }
+        commandGroups_.push_back({name, {}});
+        SaveCommands();
+        RefreshCommandGroups(static_cast<int>(commandGroups_.size()) - 1);
+    });
+    renameGroup->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+        const int index = commandGroupChoice_->GetSelection();
+        if (index == wxNOT_FOUND) return;
+        wxTextEntryDialog dialog(this, "New group name:", "Rename group", commandGroups_[index].name);
+        if (dialog.ShowModal() != wxID_OK) return;
+        wxString name = dialog.GetValue().Trim(true).Trim(false);
+        if (name.empty()) return;
+        for (std::size_t i = 0; i < commandGroups_.size(); ++i) {
+            if (static_cast<int>(i) != index && commandGroups_[i].name.CmpNoCase(name) == 0) {
+                wxMessageBox("A group with this name already exists.", "Groups", wxOK | wxICON_WARNING, this);
+                return;
+            }
+        }
+        commandGroups_[index].name = name;
+        SaveCommands();
+        RefreshCommandGroups(index);
+    });
+    deleteGroup->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+        const int index = commandGroupChoice_->GetSelection();
+        if (index == wxNOT_FOUND) return;
+        if (wxMessageBox("Delete this group and all its commands?", "Confirm deletion",
+                         wxYES_NO | wxNO_DEFAULT | wxICON_WARNING, this) != wxYES) return;
+        commandGroups_.erase(commandGroups_.begin() + index);
+        SaveCommands();
+        RefreshCommandGroups(std::min(index, static_cast<int>(commandGroups_.size()) - 1));
+    });
+    addCommand->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+        const int group = commandGroupChoice_->GetSelection();
+        if (group == wxNOT_FOUND) return;
+        wxTextEntryDialog labelDialog(this, "Command label:", "Add command");
+        if (labelDialog.ShowModal() != wxID_OK) return;
+        const wxString label = labelDialog.GetValue().Trim(true).Trim(false);
+        if (label.empty()) return;
+        wxTextEntryDialog textDialog(this, "Command text:", "Add command");
+        if (textDialog.ShowModal() != wxID_OK) return;
+        const wxString command = textDialog.GetValue();
+        if (command.empty()) return;
+        commandGroups_[group].commands.push_back({label, command});
+        SaveCommands();
+        RefreshCommandList();
+        commandList_->SetSelection(static_cast<int>(commandGroups_[group].commands.size()) - 1);
+    });
+    editCommand->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+        const int group = commandGroupChoice_->GetSelection();
+        const int index = commandList_->GetSelection();
+        if (group == wxNOT_FOUND || index == wxNOT_FOUND) return;
+        auto& command = commandGroups_[group].commands[index];
+        wxTextEntryDialog labelDialog(this, "Command label:", "Edit command", command.label);
+        if (labelDialog.ShowModal() != wxID_OK) return;
+        const wxString label = labelDialog.GetValue().Trim(true).Trim(false);
+        if (label.empty()) return;
+        wxTextEntryDialog textDialog(this, "Command text:", "Edit command", command.text);
+        if (textDialog.ShowModal() != wxID_OK) return;
+        if (textDialog.GetValue().empty()) return;
+        command.label = label;
+        command.text = textDialog.GetValue();
+        SaveCommands();
+        RefreshCommandList();
+        commandList_->SetSelection(index);
+    });
+    deleteCommand->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+        const int group = commandGroupChoice_->GetSelection();
+        const int index = commandList_->GetSelection();
+        if (group == wxNOT_FOUND || index == wxNOT_FOUND) return;
+        if (wxMessageBox("Delete selected command?", "Confirm deletion",
+                         wxYES_NO | wxNO_DEFAULT | wxICON_WARNING, this) != wxYES) return;
+        auto& commands = commandGroups_[group].commands;
+        commands.erase(commands.begin() + index);
+        SaveCommands();
+        RefreshCommandList();
+    });
     commandsPanel_->SetSizer(commandsBox);
-    commandsPanel_->SetMinSize(wxSize(210, -1));
+    commandsPanel_->SetMinSize(wxSize(280, -1));
     mainLayout_->Add(commandsPanel_, 0, wxEXPAND | wxTOP | wxRIGHT | wxBOTTOM, 8);
     panel->SetSizer(mainLayout_);
 
@@ -232,6 +326,104 @@ void MainFrame::BuildUi() {
     sendModeChoice_->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) {
         lineEndingChoice_->Enable(sendModeChoice_->GetSelection() == 0);
     });
+}
+
+
+namespace {
+wxString CommandConfigPath() {
+    return wxStandardPaths::Get().GetUserConfigDir() + wxFILE_SEP_PATH + "SerialTest-commands.ini";
+}
+}
+
+void MainFrame::LoadCommands() {
+    commandGroups_.clear();
+    const wxString path = CommandConfigPath();
+    if (wxFileExists(path)) {
+        wxFileConfig config(wxEmptyString, wxEmptyString, path, wxEmptyString, wxCONFIG_USE_LOCAL_FILE);
+        long groupCount = 0;
+        config.Read("/groups/count", &groupCount, 0L);
+        groupCount = std::max(0L, std::min(groupCount, 1000L));
+        for (long i = 0; i < groupCount; ++i) {
+            const wxString prefix = wxString::Format("/groups/%ld/", i);
+            CommandGroup group;
+            config.Read(prefix + "name", &group.name);
+            if (group.name.empty()) continue;
+            long count = 0;
+            config.Read(prefix + "count", &count, 0L);
+            count = std::max(0L, std::min(count, 10000L));
+            for (long j = 0; j < count; ++j) {
+                const wxString item = prefix + wxString::Format("commands/%ld/", j);
+                SavedCommand command;
+                config.Read(item + "label", &command.label);
+                config.Read(item + "text", &command.text);
+                if (!command.label.empty() && !command.text.empty()) group.commands.push_back(command);
+            }
+            commandGroups_.push_back(std::move(group));
+        }
+        return;  // Preserve even an intentionally empty command collection.
+    }
+    commandGroups_ = {
+        {"System", {{"Current directory", "pwd"}, {"List files", "ls -lah"},
+                    {"Current user", "whoami"}, {"Kernel info", "uname -a"},
+                    {"OS version", "cat /etc/os-release"}, {"CPU info", "lscpu"},
+                    {"Memory", "free -h"}}},
+        {"Storage", {{"Disk usage", "df -h"}, {"Block devices", "lsblk"}}},
+        {"Network", {{"IP addresses", "ip addr"}, {"Network routes", "ip route"}}},
+        {"Logs", {{"Recent kernel log", "dmesg | tail -n 30"}}}
+    };
+}
+
+void MainFrame::SaveCommands() {
+    wxFileConfig config(wxEmptyString, wxEmptyString, CommandConfigPath(),
+                        wxEmptyString, wxCONFIG_USE_LOCAL_FILE);
+    config.DeleteAll();
+    config.Write("/groups/count", static_cast<long>(commandGroups_.size()));
+    for (std::size_t i = 0; i < commandGroups_.size(); ++i) {
+        const wxString prefix = wxString::Format("/groups/%lu/", static_cast<unsigned long>(i));
+        const auto& group = commandGroups_[i];
+        config.Write(prefix + "name", group.name);
+        config.Write(prefix + "count", static_cast<long>(group.commands.size()));
+        for (std::size_t j = 0; j < group.commands.size(); ++j) {
+            const wxString item = prefix + wxString::Format("commands/%lu/", static_cast<unsigned long>(j));
+            config.Write(item + "label", group.commands[j].label);
+            config.Write(item + "text", group.commands[j].text);
+        }
+    }
+    if (!config.Flush()) {
+        wxMessageBox("Could not save common commands to:\n" + CommandConfigPath(),
+                     "Save failed", wxOK | wxICON_ERROR, this);
+    }
+}
+
+void MainFrame::RefreshCommandGroups(int preferred) {
+    commandGroupChoice_->Clear();
+    for (const auto& group : commandGroups_) commandGroupChoice_->Append(group.name);
+    if (!commandGroups_.empty()) {
+        preferred = std::max(0, std::min(preferred, static_cast<int>(commandGroups_.size()) - 1));
+        commandGroupChoice_->SetSelection(preferred);
+    }
+    RefreshCommandList();
+}
+
+void MainFrame::RefreshCommandList() {
+    commandList_->Clear();
+    const int group = commandGroupChoice_->GetSelection();
+    if (group == wxNOT_FOUND) return;
+    for (const auto& command : commandGroups_[group].commands) {
+        commandList_->Append(command.label);
+    }
+}
+
+void MainFrame::InsertSelectedCommand() {
+    const int group = commandGroupChoice_->GetSelection();
+    const int index = commandList_->GetSelection();
+    if (group == wxNOT_FOUND || index == wxNOT_FOUND) return;
+    sendModeChoice_->SetSelection(0);
+    lineEndingChoice_->Enable(true);
+    lineEndingChoice_->SetSelection(1);
+    sendText_->SetValue(commandGroups_[group].commands[index].text);
+    sendText_->SetFocus();
+    sendText_->SetInsertionPointEnd();
 }
 
 void MainFrame::RefreshPorts() {
