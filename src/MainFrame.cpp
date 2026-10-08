@@ -75,6 +75,7 @@ MainFrame::~MainFrame() {
 
 void MainFrame::BuildUi() {
     auto* panel = new wxPanel(this);
+    mainLayout_ = new wxBoxSizer(wxHORIZONTAL);
     auto* root = new wxBoxSizer(wxVERTICAL);
 
     auto* connectionBox = new wxStaticBoxSizer(wxVERTICAL, panel, "Connection");
@@ -88,6 +89,9 @@ void MainFrame::BuildUi() {
 
     openCloseButton_ = new wxButton(panel, wxID_ANY, "Open");
     portRow->Add(openCloseButton_, 0, wxRIGHT, 12);
+
+    toggleCommandsButton_ = new wxButton(panel, wxID_ANY, "Hide commands");
+    portRow->Add(toggleCommandsButton_, 0, wxRIGHT, 12);
 
     statusLabel_ = new wxStaticText(panel, wxID_ANY, "Disconnected");
     portRow->Add(statusLabel_, 0, wxALIGN_CENTER_VERTICAL);
@@ -171,7 +175,54 @@ void MainFrame::BuildUi() {
     sendBox->Add(sendRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 6);
     root->Add(sendBox, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
 
-    panel->SetSizer(root);
+    mainLayout_->Add(root, 1, wxEXPAND);
+
+    commandsPanel_ = new wxPanel(panel);
+    auto* commandsBox = new wxStaticBoxSizer(wxVERTICAL, commandsPanel_, "Common commands");
+    commandsBox->Add(new wxStaticText(commandsPanel_, wxID_ANY,
+                                      "Linux shell commands (insert only)"),
+                     0, wxALL, 6);
+
+    struct CommandEntry { const char* label; const char* command; };
+    const CommandEntry commands[] = {
+        {"Current directory", "pwd"},
+        {"List files", "ls -lah"},
+        {"Current user", "whoami"},
+        {"Kernel info", "uname -a"},
+        {"OS version", "cat /etc/os-release"},
+        {"CPU info", "lscpu"},
+        {"Memory", "free -h"},
+        {"Disk usage", "df -h"},
+        {"Block devices", "lsblk"},
+        {"IP addresses", "ip addr"},
+        {"Network routes", "ip route"},
+        {"Recent kernel log", "dmesg | tail -n 30"},
+    };
+    for (const auto& entry : commands) {
+        auto* button = new wxButton(commandsPanel_, wxID_ANY, entry.label);
+        const wxString command = wxString::FromUTF8(entry.command);
+        button->SetToolTip(command);
+        commandsBox->Add(button, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 5);
+        button->Bind(wxEVT_BUTTON, [this, command](wxCommandEvent&) {
+            sendModeChoice_->SetSelection(0);  // Commands must be sent as text, not HEX.
+            lineEndingChoice_->Enable(true);
+            lineEndingChoice_->SetSelection(1);  // Linux consoles expect CR (Enter).
+            sendText_->SetValue(command);
+            sendText_->SetFocus();
+            sendText_->SetInsertionPointEnd();
+        });
+    }
+    commandsPanel_->SetSizer(commandsBox);
+    commandsPanel_->SetMinSize(wxSize(210, -1));
+    mainLayout_->Add(commandsPanel_, 0, wxEXPAND | wxTOP | wxRIGHT | wxBOTTOM, 8);
+    panel->SetSizer(mainLayout_);
+
+    toggleCommandsButton_->Bind(wxEVT_BUTTON, [this, panel](wxCommandEvent&) {
+        const bool show = !commandsPanel_->IsShown();
+        mainLayout_->Show(commandsPanel_, show);
+        toggleCommandsButton_->SetLabel(show ? "Hide commands" : "Show commands");
+        panel->Layout();
+    });
 
     refreshButton_->Bind(wxEVT_BUTTON, &MainFrame::OnRefreshPorts, this);
     openCloseButton_->Bind(wxEVT_BUTTON, &MainFrame::OnOpenClose, this);
