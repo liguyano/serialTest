@@ -59,6 +59,7 @@ private:
 
     wxChoice* sendModeChoice_ = nullptr;
     wxChoice* lineEndingChoice_ = nullptr;
+    wxCheckBox* clearAfterSendCheckBox_ = nullptr;
     wxTextCtrl* sendText_ = nullptr;
     wxButton* sendButton_ = nullptr;
 };
