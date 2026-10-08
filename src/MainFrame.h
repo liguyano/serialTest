@@ -16,6 +16,8 @@ class wxCloseEvent;
 class wxCommandEvent;
 class wxStaticText;
 class wxTextCtrl;
+class wxPanel;
+class wxBoxSizer;
 
 class MainFrame final : public wxFrame {
 public:
@@ -62,4 +64,7 @@ private:
     wxCheckBox* clearAfterSendCheckBox_ = nullptr;
     wxTextCtrl* sendText_ = nullptr;
     wxButton* sendButton_ = nullptr;
+    wxButton* toggleCommandsButton_ = nullptr;
+    wxPanel* commandsPanel_ = nullptr;
+    wxBoxSizer* mainLayout_ = nullptr;
 };
