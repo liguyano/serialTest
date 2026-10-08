@@ -8,6 +8,7 @@
 #include <wx/datetime.h>
 #include <wx/filedlg.h>
 #include <wx/ffile.h>
+#include <wx/icon.h>
 #include <wx/fileconf.h>
 #include <wx/filename.h>
 #include <wx/listbox.h>
@@ -65,6 +66,7 @@ wxString BytesToReadableText(const std::vector<std::uint8_t>& bytes) {
 MainFrame::MainFrame()
     : wxFrame(nullptr, wxID_ANY, "SerialTest - wxWidgets Serial Terminal",
               wxDefaultPosition, wxSize(1000, 700)) {
+    SetIcon(wxICON(APPICON));
     LoadCommands();
     BuildUi();
     RefreshCommandGroups();
