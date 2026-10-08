@@ -155,7 +155,11 @@ void MainFrame::BuildUi() {
     sendToolbar->Add(new wxStaticText(panel, wxID_ANY, "Line ending:"), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
     lineEndingChoice_ = CreateChoice(panel, {"None", "CR", "LF", "CRLF"});
     lineEndingChoice_->SetSelection(0);
-    sendToolbar->Add(lineEndingChoice_, 0);
+    sendToolbar->Add(lineEndingChoice_, 0, wxRIGHT, 12);
+
+    clearAfterSendCheckBox_ = new wxCheckBox(panel, wxID_ANY, "Clear after send");
+    clearAfterSendCheckBox_->SetValue(false);
+    sendToolbar->Add(clearAfterSendCheckBox_, 0, wxALIGN_CENTER_VERTICAL);
     sendBox->Add(sendToolbar, 0, wxEXPAND | wxALL, 6);
 
     auto* sendRow = new wxBoxSizer(wxHORIZONTAL);
@@ -279,6 +283,11 @@ void MainFrame::OnSend(wxCommandEvent&) {
     if (!serialPort_.Write(bytes, writeError)) {
         wxMessageBox(wxString::FromUTF8(writeError), "Serial write failed",
                      wxOK | wxICON_ERROR, this);
+        return;
+    }
+
+    if (!bytes.empty() && clearAfterSendCheckBox_->GetValue()) {
+        sendText_->Clear();
     }
 }
 
