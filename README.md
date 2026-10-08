@@ -18,7 +18,7 @@ A small Windows serial debugging terminal written in C++ with wxWidgets. It is i
 
 ```text
 serialTest/
-├─ wxWidgets/          # downloaded locally; ignored by Git
+├─ wxwidget/          # downloaded locally; ignored by Git
 ├─ src/                # application and Win32 serial code
 ├─ tests/              # pure helper tests
 ├─ setup_wxwidgets.bat
@@ -26,14 +26,14 @@ serialTest/
 └─ CMakeLists.txt
 ```
 
-The repository does **not** contain the wxWidgets source tree. `setup_wxwidgets.bat` downloads wxWidgets `v3.2.8.1` into the local `wxWidgets/` folder.
+If the local `wxwidget/` source tree is already present, it is reused. `setup_wxwidgets.bat` downloads wxWidgets `v3.2.8.1` into the local `wxwidget/` folder.
 
 ## Requirements
 
 - Windows 10 or Windows 11 x64.
 - Git for Windows.
 - CMake 3.20 or newer available in `PATH`.
-- Visual Studio 2022 with **Desktop development with C++** installed.
+- MinGW-w64 GCC with C++17 support, including `gcc`, `g++`, `mingw32-make`, and `windres`, available in `PATH`. Use tools from the same MinGW-w64 installation.
 
 ## Quick start
 
@@ -59,7 +59,7 @@ setup_wxwidgets.bat
 This creates a complete local wxWidgets source tree at:
 
 ```text
-serialTest\wxWidgets\
+serialTest\wxwidget\
 ```
 
 Build and run the tests:
@@ -68,10 +68,20 @@ Build and run the tests:
 build.bat
 ```
 
+The script uses GCC with the `MinGW Makefiles` generator, builds and runs the helper tests, then builds the application. It uses a separate `build-gcc/` directory to avoid reusing Visual Studio build caches.
+
+To build manually:
+
+```bat
+cmake -S . -B build-gcc -G "MinGW Makefiles" -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+cmake --build build-gcc --parallel 2
+ctest --test-dir build-gcc --output-on-failure
+```
+
 The Release executable is expected at:
 
 ```text
-build\Release\SerialTest.exe
+build-gcc\SerialTest.exe
 ```
 
 ## Orange Pi AI Pro debug UART
@@ -138,9 +148,9 @@ Run:
 setup_wxwidgets.bat
 ```
 
-### CMake cannot find Visual Studio
+### CMake or MinGW-w64 tools cannot be found
 
-Open **Visual Studio Installer**, modify Visual Studio 2022, and install **Desktop development with C++**. Then run `build.bat` again.
+Add the CMake and MinGW-w64 `bin` directories to `PATH`, reopen the terminal, and run `build.bat` again. GCC must target Windows (MinGW-w64); WSL/Linux GCC cannot build this Windows application. Keep the MinGW-w64 `bin` directory in `PATH` when running the executable so its runtime DLLs can be found.
 
 ### Port opens in another program but not SerialTest
 

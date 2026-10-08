@@ -3,33 +3,39 @@ setlocal
 
 cd /d "%~dp0"
 
-where cmake >nul 2>nul
-if errorlevel 1 (
-    echo [ERROR] CMake was not found in PATH.
-    exit /b 1
+for %%T in (cmake ctest gcc g++ mingw32-make windres) do (
+    where %%T >nul 2>nul
+    if errorlevel 1 (
+        echo [ERROR] %%T was not found in PATH.
+        echo Install CMake and MinGW-w64, add their bin folders to PATH, and reopen the terminal.
+        exit /b 1
+    )
 )
 
-if not exist "wxWidgets\CMakeLists.txt" (
+if not exist "wxwidget\CMakeLists.txt" (
     echo [ERROR] wxWidgets is missing.
     echo Run setup_wxwidgets.bat first.
     exit /b 1
 )
 
-echo [INFO] Configuring Visual Studio 2022 x64 build...
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DBUILD_TESTING=ON
+echo [INFO] Configuring MinGW-w64 GCC Release build...
+cmake -S . -B build-gcc -G "MinGW Makefiles" -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+if errorlevel 1 exit /b 1
+
+echo [INFO] Building helper tests...
+cmake --build build-gcc --target SerialHelpersTests --parallel 2
 if errorlevel 1 exit /b 1
 
 echo [INFO] Running helper tests...
-cmake --build build --config Debug --target SerialHelpersTests
-if errorlevel 1 exit /b 1
-ctest --test-dir build -C Debug --output-on-failure
+ctest --test-dir build-gcc --output-on-failure
 if errorlevel 1 exit /b 1
 
 echo [INFO] Building SerialTest Release...
-cmake --build build --config Release --target SerialTest
+cmake --build build-gcc --target SerialTest --parallel 2
 if errorlevel 1 exit /b 1
 
 echo.
 echo [OK] Build completed.
-echo Executable: "%CD%\build\Release\SerialTest.exe"
+echo Executable: "%CD%\build-gcc\SerialTest.exe"
+echo Keep the MinGW-w64 bin folder in PATH when running the application.
 exit /b 0
