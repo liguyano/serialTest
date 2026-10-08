@@ -18,6 +18,7 @@ class wxStaticText;
 class wxTextCtrl;
 class wxPanel;
 class wxBoxSizer;
+class wxListBox;
 
 class MainFrame final : public wxFrame {
 public:
@@ -25,7 +26,15 @@ public:
     ~MainFrame() override;
 
 private:
+    struct SavedCommand { wxString label; wxString text; };
+    struct CommandGroup { wxString name; std::vector<SavedCommand> commands; };
+
     void BuildUi();
+    void LoadCommands();
+    void SaveCommands();
+    void RefreshCommandGroups(int preferred = 0);
+    void RefreshCommandList();
+    void InsertSelectedCommand();
     void RefreshPorts();
     void SetConnectedState(bool connected);
 
@@ -67,4 +76,7 @@ private:
     wxButton* toggleCommandsButton_ = nullptr;
     wxPanel* commandsPanel_ = nullptr;
     wxBoxSizer* mainLayout_ = nullptr;
+    wxChoice* commandGroupChoice_ = nullptr;
+    wxListBox* commandList_ = nullptr;
+    std::vector<CommandGroup> commandGroups_;
 };
