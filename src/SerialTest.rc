@@ -1,3 +1,6 @@
 // Embed wxWidgets resources and the Common Controls v6 application manifest.
 #define wxUSE_RC_MANIFEST 1
 #include "wx/msw/wx.rc"
+
+// Windows executable icon.
+APPICON ICON "../assert/icon.ico"
